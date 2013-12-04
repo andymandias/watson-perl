@@ -654,11 +654,13 @@ sub parseConfig {
 				return;
 			}
 			# Regex for tags, then push to @TAGS
-			$line =~ /^\A\s* (\w+(?: \| [0-9])?) \s*\z/x
+			$line =~ /^\A\s* (\w*(?: \| [0-9])?) \s*#*.*\z/x
 				or die qq{The line "$line" in a "tags" section did not contain a valid tag};
 			my $tag = $1;
-			debugPrint("tags: $tag added from rc.\n");
-			push @TAGS, $tag;
+			if ($tag ne "") {
+				debugPrint("tags: $tag added from rc.\n");
+				push @TAGS, $tag;
+			}
 		},
 		# If @IGNORE wasn't populated by CL args, populate from rc
 		ignore => sub {
@@ -715,7 +717,7 @@ sub parseConfig {
 	# Read rc line by line
 	my $section = "";
 	while (my $line = <$rc>){
-	    debugPrint($line);
+		debugPrint($line);
 		chomp $line;
 
 		# Ignore full line comments
@@ -843,6 +845,9 @@ sub parseFile {
 	# Error check for input
 	return unless checkFile($file);
 
+	# Return unless the input is a text file
+	return unless ( -T $file );
+
 	# Get filetype and set corresponding comment type
 	my $comment = getComment($file);
 
@@ -857,8 +862,8 @@ sub parseFile {
 
 	# Read source file line by line
 	while (my $line = <$wf>){
-	    # Find any comment line with [tag] - text (any comb of space and #)
-	    if ($line =~ /\s*(?:$comment)+\s*\[(\S+)\]\s*-\s*(.+)/) {
+		# Find any comment line with [tag] - text (any comb of space and #)
+		if ($line =~ /\s*(?:$comment)+\s*\[(\S+)\]\s*-\s*(.+)/) {
 			my ($ftag, $fissue) = ($1, $2);
 			debugPrint("Issue found!\n");
 			debugPrint("Tag: $ftag\n");
@@ -886,7 +891,7 @@ sub parseFile {
 
 			# If Bitbucket valid, pass $issue to poster function
 			postBitbucket(\%issue) if $BITBUCKET_VALID;
-	    }
+		}
 	}
 
 	return \%issueList;
@@ -908,10 +913,11 @@ sub getComment {
 	# This is to account for file.cpp.1 or file.cpp.bak, ect
 
 	my %exts;
-	$exts{$_} = qr{//} for qw/cpp cc c h c++ m mm java class cs js php go scala/; # [todo] - add /* style comment
-	$exts{$_} = qr{#}  for qw/sh rb pl pm py coffee zsh sh t/;
+	$exts{$_} = qr{//} for qw/cpp cc c C h H c++ m mm java class cs js php go scala/; # [todo] - add /* style comment
+	$exts{$_} = qr{#}  for qw/sh zsh bash rb pl pm py coffee t csf/;
+	$exts{$_} = qr{^C|!}  for qw/f f90 f95 f03 F F90 F95 F03/;
 	$exts{$_} = qr{--}  for qw/hs/;
-	$exts{$_} = qr{%}  for qw/erl/;
+	$exts{$_} = qr{%}  for qw/erl tex/;
 	$exts{$_} = qr{;;}  for qw/clj/;
 	$exts{$_} = qr{<!--}  for qw/html htm css/;
 
@@ -1083,28 +1089,28 @@ sub githubSetup {
 
 		my $response = `$call`;
 
-    # We use headers for determining HTTP call status
-    if ($response =~ m{201 Created}){
-      print box(BOLD GREEN "o");
-      print BOLD "Obtained OAuth Token\n";
-    }
-    else {
-      print box(BOLD RED "x");
-      print BOLD "Unable to obtain OAuth Token\n", RESET;
-      cExit(1);
-    }
-   
-    my @splits = split /X-GitHub-Request-Id:.+/, $response;
+	# We use headers for determining HTTP call status
+	if ($response =~ m{201 Created}){
+	  print box(BOLD GREEN "o");
+	  print BOLD "Obtained OAuth Token\n";
+	}
+	else {
+	  print box(BOLD RED "x");
+	  print BOLD "Unable to obtain OAuth Token\n", RESET;
+	  cExit(1);
+	}
+
+	my @splits = split /X-GitHub-Request-Id:.+/, $response;
 		decode_json($splits[1]);
 	};
 
 
 	print "\n", RESET;
-	
+
   # Set API key for use later so we don't have to parse config
 	# [reviewme] - Maybe we should just parse config?
 	$GITHUB_API = $js->{token};
-	
+
   # Get repo information
 	# If blank, give error
 	print box(BOLD YELLOW "!");
@@ -1135,58 +1141,58 @@ sub githubSetup {
 
 		my $response = `$call`;
 
-    # We use headers for determining HTTP call status
-    if ($response =~ m{200 OK}){
-      print box(BOLD GREEN "o");
+	# We use headers for determining HTTP call status
+	if ($response =~ m{200 OK}){
+	  print box(BOLD GREEN "o");
 		  print BOLD "Repo successfully accessed\n";
-    }
-    else {
-      print box(BOLD RED "x");
+	}
+	else {
+	  print box(BOLD RED "x");
 		  print BOLD "Unable to access /repo/$owner/$repo\n", RESET;
-      cExit(1);
-    }
+	  cExit(1);
+	}
 
-    my @splits = split /Vary: Accept-Encoding/, $response;
+	my @splits = split /Vary: Accept-Encoding/, $response;
 		decode_json($splits[1]);
 	};
 
 	print "\n";
 
-  # Create label for watson	
+  # Create label for watson
   print box(BOLD GREEN "+");
 	print BOLD "Creating label for watson on GitHub...\n", RESET;
 
 	# Create label for watson
 	$js = do {
 	my $call = "curl -s -i " .
-		       "-H 'Authorization: token $GITHUB_API' " .
-		       "https://api.github.com/repos/$owner/$repo/labels " .
-		       "-d '{" .
-		       		"\"name\" : \"watson\"," .
-		       		"\"color\" : \"00AEEF\" }'";
+			   "-H 'Authorization: token $GITHUB_API' " .
+			   "https://api.github.com/repos/$owner/$repo/labels " .
+			   "-d '{" .
+					"\"name\" : \"watson\"," .
+					"\"color\" : \"00AEEF\" }'";
 
 		my $response = `$call`;
 
-    # We use headers for determining HTTP call status
-    if ($response =~ m{201 Created}){
-      print box(BOLD GREEN "o");
+	# We use headers for determining HTTP call status
+	if ($response =~ m{201 Created}){
+	  print box(BOLD GREEN "o");
 		  print BOLD "Label successfully created\n";
-    }
+	}
 	  elsif ($response =~ m{already_exists}){
 		  print box(BOLD YELLOW "!");
 		  print BOLD "Label already exists\n";
-      cExit(1);
-    }
-    else {
+	  cExit(1);
+	}
+	else {
 		  print box(BOLD RED "x");
 		  print BOLD "Unable to access /repo/$owner/$repo\n", RESET;
-      print "      Check that credentials are correct and repository exists under user\n";
+	  print "      Check that credentials are correct and repository exists under user\n";
 		  cExit(1);
-    }
-    print $response;
-    cExit(1);
+	}
+	print $response;
+	cExit(1);
 
-    my @splits = split /Vary: Accept-Encoding/, $response;
+	my @splits = split /Vary: Accept-Encoding/, $response;
 		decode_json($splits[1]);
 	};
 
@@ -1205,7 +1211,7 @@ sub githubSetup {
 			debugPrint("$line\n");
 			# Regex for section
 			if ($line =~ /^\[(\w+)\]/){
-			    $section = $1;
+				$section = $1;
 			}
 
 
@@ -1455,19 +1461,19 @@ sub bitbucketSetup {
 
 		my $response = `$call`;
 
-    # We use headers for determining HTTP call status
-    if ($response =~ m{HTTP/1.1 200 OK}){
-      print box(BOLD GREEN "o");
+	# We use headers for determining HTTP call status
+	if ($response =~ m{HTTP/1.1 200 OK}){
+	  print box(BOLD GREEN "o");
 		  print BOLD "Successfully accessed remote repo with given credentials\n";
-    }
-    else {
-      print box(BOLD RED "x");
+	}
+	else {
+	  print box(BOLD RED "x");
 		  print BOLD "      Unable to access remote repo with given credentials\n", RESET;
 		  print BOLD "      Check that credentials are correct and repository exists under owner\n", RESET;
-      cExit(1);
-    }
- 
-    my @splits = split /X-Content-Type-Options:.+/, $response;
+	  cExit(1);
+	}
+
+	my @splits = split /X-Content-Type-Options:.+/, $response;
 		decode_json($splits[1]);
 	};
 
